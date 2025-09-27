@@ -61,6 +61,7 @@ private const val BASE = "http://203.250.148.89:3000"
 - 네트워크: OkHttp (로그: NET_TIME, POST_RAW)
 - 동기화 흐름
     1. fetchResourceTree(ae) → Room에 치환 저장(replaceByTree)
+    
     1. VM start()로 폴링 시작 → 값 수신 시 UI 반영
     1. Add Items 시 서버 CNT 생성 → DB upsert → 최신값 1회 읽기 → VM 재시작/force refresh
 
