@@ -1,93 +1,137 @@
-# Android App
+# TinyIoT Connect (Android, Compose)
+
+스마트팜(AE)의 센서/액추에이터를 oneM2M(REST)로 모니터링/제어하는 안드로이드 앱.
+
+센서 실시간 모니터링, 액추에이터 제어(지연시간 표시), 동적 디바이스/항목 추가를 지원합니다.
+
+## 주요 기능	
+
+- AE 등록/해제 (DataStore 기반)
+
+- 센서/액추에이터 자동 발견: ty=3 우선, 없으면 ty=4에서 CNT명 추출(fallback)
+- 센서 값 표시 & 추이 차트/통계
+- 액추에이터 제어: Fan/Water 토글, Door Open/Close, LED 밝기 슬라이더
+- 액션 지연시간 측정(POST~값 반영까지, Last action: ✔ 450 ms 등)
+- Add Items: 서버의 CNT 생성(409=이미 존재는 OK) → DB/스토어 반영 → 최신값 1회 읽기 → 폴링 재시작
+- Refresh: 서버 리소스 트리 재발견 → Room DB **replaceByTree()**로 치환 저장 → 화면 동기화
 
 
+## 빠른 시작 
 
-## Getting started
+### 요구사항
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+- Android Studio Koala 이상
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+- JDK 17, Gradle(프로젝트에 포함)
+- 테스트 서버 접근 가능(연구실 서버 또는 에뮬레이터용 로컬 프록시)
 
-## Add your files
+### 1) 클론 & 열기
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+```bash
+$ git clone <YOUR_REPO_URL>
+
+$ open in Android Studio
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/yejin126/android-app.git
-git branch -M main
-git push -uf origin main
+
+### 2) 서버 주소 설정
+
+com.example.tiny2.network.TinyIoTApi.kt 상단:
+
+```kotlin
+private const val BASE = "http://203.250.148.89:3000"
+
+// 에뮬레이터에서 로컬호스트 쓰려면: "http://10.0.2.2:3000"
 ```
 
-## Integrate with your tools
+### 3) 실행
 
-- [ ] [Set up project integrations](https://gitlab.com/yejin126/android-app/-/settings/integrations)
+- 앱 실행 → Add Smart Farm → 서버에서 AE 목록(TinyIoT?fu=1&ty=2) 로드 → 선택하여 등록
+- 디테일 화면에서 센서/액추 상태 확인 및 제어
 
-## Collaborate with your team
+## 리소스 트리 개요 (oneM2M)
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
 
-## Test and Deploy
+## 아키텍처 요약
 
-Use the built-in continuous integration in GitLab.
+- UI: Jetpack Compose
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+- 상태: ViewModel(DeviceMonitorViewModel) + StateFlow
+- 영속화: Room(테이블 CntDefEntity) + DataStore(등록된 AE 목록)
+- 네트워크: OkHttp (로그: NET_TIME, POST_RAW)
+- 동기화 흐름
+    1. fetchResourceTree(ae) → Room에 치환 저장(replaceByTree)
+    1. VM start()로 폴링 시작 → 값 수신 시 UI 반영
+    1. Add Items 시 서버 CNT 생성 → DB upsert → 최신값 1회 읽기 → VM 재시작/force refresh
 
-***
+## 사용법 요약
 
-# Editing this README
+### 메인
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+- Add Smart Farm: AE 목록 가져와 선택 → 카드 생성
 
-## Suggestions for a good README
+- 카드 ⋮ → Unsubscribe: DataStore에서 제거
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
 
-## Name
-Choose a self-explaining name for your project.
+### 디테일
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+- Refresh: 서버 기준 트리 재발견 → DB 치환 → 폴링 재시작
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+- Sensor Data: 카드 탭 → 차트/통계
+- Actuator Status
+    - Fan/Water: 카드 탭으로 ON/OFF
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+    - Door: Opened/Closed 토글
+    - LED: 슬라이더(0~10)
+    - 하단 라벨에 Last action(지연시간/타임아웃) 표시
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+### Add Items
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+1. FAB Add Items → 서버 CNT 전체 스캔(이미 존재하는 항목 제외)
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+1. 선택 → 서버에 CNT 생성 + 초기 CIN 시드 → DB 반영 → 최신값 읽기 → 폴링 재시작
+1. 즉시 카드가 생기고, 상태/값이 채워짐
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+## 주요 설정 / 코드 포인트
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+- 서버 BASE: TinyIoTApi.kt → BASE
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+- Actuators 경로: 반드시 Actuators(복수형)
+- 발견 로직:
+    - 함수: getCntNamesWithFallback(basePath)
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+    - ty=3 비어있으면 ty=4에서 CNT명 추출
+- 지연시간 측정:
+    - sendActuatorWithLatency()
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+    - 로그 태그: ACT_MEASURE (POST 소요, 폴링, 매칭/타임아웃)
+- DB 치환 저장:
+    - CntRepository.replaceByTree(ae, tree) → deleteByAe(ae) 후 upsertAll(defs)
+- UI 동기화 핵심 로그 태그
+    - ADD_ITEMS, TREE_URIS, POST_RAW, ACT_MEASURE, NET_TIME
 
-## License
-For open source projects, say how it is licensed.
+## 수동 검증 시나리오
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+1. 메인에서 AE 등록 → 카드 생성
+
+1. 디테일 진입 → 센서 카드 보임
+1. Add Items로 LED/Fan 추가 → 즉시 카드 등장 + 값 채워짐
+1. LED 슬라이더 조절 → “Last action: ✔ n ms” 표시
+1. 서버에서 CNT 삭제 후 디테일 상단 Refresh → 카드가 사라짐(서버 기준 반영)
+
+## 트러블슈팅
+
+- 액추에이터가 안 보임 → 서버가 ty=3을 비워두는 케이스. 앱은 ty=4 fallback으로 보완함.
+  (로그 TREE_URIS path=...ty=3 -> size=0, 이어서 ty=4 성공 확인)
+- Add Items 후 카드가 안 보임 → DB 반영/트리 재시작 루틴 확인 (ADD_ITEMS 로그, forceRefreshOnce)
+
+- NetworkOnMainThreadException → 모든 네트워크는 Dispatchers.IO/enqueue 사용(앱은 이미 분리되어 있음)
+
+## 빌드
+
+- Debug : Android Studio ▶︎ run
+
+- CLI: 
+```bash
+$ ./gradlew assembleDebug
+``` 
