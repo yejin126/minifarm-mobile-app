@@ -1,3 +1,5 @@
+![TinyIoT logo](./docs/images/TinyIoT-logo.png)
+
 # TinyIoT Connect (Android, Compose)
 
 스마트팜(AE)의 센서/액추에이터를 oneM2M(REST)로 모니터링/제어하는 안드로이드 앱.
@@ -71,16 +73,34 @@ private const val BASE = "http://203.250.148.89:3000"
 
 ### 메인
 
+![Main Screen](./docs/images/Main1.png)
+
 - Add Smart Farm: AE 목록 가져와 선택 → 카드 생성
+
+![Main Screen](./docs/images/Main2.png)
+
+![Main Screen](./docs/images/Main3.png)
 
 - 카드 ⋮ → Unsubscribe: DataStore에서 제거
 
+![Main Screen](./docs/images/Main4.png)
 
-### 디테일
+![Main Screen](./docs/images/Main5.png)
 
-- Refresh: 서버 기준 트리 재발견 → DB 치환 → 폴링 재시작
+
+### Detail
+
+- Refresh(오른쪽 상단 아이콘): 서버 기준 트리 재발견 → DB 치환 → 폴링 재시작
+
+![Smart Farm Detail](./docs/images/Farm-Detail1.png)
 
 - Sensor Data: 카드 탭 → 차트/통계
+    - 현재 상태 옆 아이콘 클릭 시 범위 표시
+
+![Sensor Detail](./docs/images/Sensor-Detail1.png)
+
+![Sensor Detail](./docs/images/Sensor-Detail3.png)
+
 - Actuator Status
     - Fan/Water: 카드 탭으로 ON/OFF
 
@@ -88,12 +108,27 @@ private const val BASE = "http://203.250.148.89:3000"
     - LED: 슬라이더(0~10)
     - 하단 라벨에 Last action(지연시간/타임아웃) 표시
 
+![Smart Farm Detail](./docs/images/Farm-Detail3.png)
+
+![Smart Farm Detail](./docs/images/Farm-Detail1.png)
+
 ### Add Items
 
 1. FAB Add Items → 서버 CNT 전체 스캔(이미 존재하는 항목 제외)
 
-1. 선택 → 서버에 CNT 생성 + 초기 CIN 시드 → DB 반영 → 최신값 읽기 → 폴링 재시작
-1. 즉시 카드가 생기고, 상태/값이 채워짐
+![Smart Farm Detail](./docs/images/Farm-Detail4.png)
+
+2. 선택 → 서버에 CNT 생성 + 초기 CIN 시드 → DB 반영 → 최신값 읽기 → 폴링 재시작
+
+3. 즉시 카드가 생기고, 상태/값이 채워짐
+
+![Smart Farm Detail](./docs/images/Farm-Detail5.png)
+
+![Smart Farm Detail](./docs/images/Farm-Detail6.png)
+
+4. Sensor/Actuator cnt 삭제 시 카드도 삭제됨
+
+![Smart Farm Detail](./docs/images/Farm-Detail7.png)
 
 ## 주요 설정 / 코드 포인트
 
