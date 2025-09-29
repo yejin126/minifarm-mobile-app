@@ -31,6 +31,16 @@ android {
         languageVersion = "2.2"
         apiVersion = "2.2"
     }
+
+    packaging {
+        resources {
+            excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/LICENSE*"
+            excludes += "META-INF/NOTICE*"
+            excludes += "META-INF/io.netty.versions.properties"
+        }
+    }
 }
 
 val compose_version = "1.6.0"
@@ -39,7 +49,6 @@ val material3_version = "1.2.0"
 dependencies {
     // Core
     implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
     implementation("androidx.activity:activity-compose:1.8.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
 
@@ -52,7 +61,7 @@ dependencies {
     implementation("androidx.compose.material3:material3:$material3_version")
 
     // Material (기존 Material icons 포함)
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.material:material-icons-extended:$compose_version")
 
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.3")
@@ -93,9 +102,5 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
-    implementation("androidx.compose.material:material-icons-extended")
-
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.hivemq:hivemq-mqtt-client:1.3.3")
 }
