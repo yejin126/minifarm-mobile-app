@@ -51,7 +51,7 @@ private const val BASE = "http://203.250.148.89:3000"
 
 ## 리소스 트리 개요 (oneM2M)
 
-![Resource Tree Detail](docs/images/resource_tree.png)
+![Resource Tree Detail](./docs/images/resource_tree.png)
 
 
 ## 아키텍처 요약
