@@ -41,7 +41,6 @@ $ open in Android Studio
 com.example.tiny2.network.TinyIoTApi.kt 상단:
 
 ```kotlin
-private const val BASE = "http://203.250.148.89:3000"
 
 // 에뮬레이터에서 로컬호스트 쓰려면: "http://10.0.2.2:3000"
 ```
