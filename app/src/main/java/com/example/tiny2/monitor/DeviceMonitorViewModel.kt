@@ -19,6 +19,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import com.example.tiny2.network.ActuationLatency
+import com.example.tiny2.network.mqtt.MqttConfig
+import com.example.tiny2.network.mqtt.OneM2MMqtt
 
 class DeviceMonitorViewModel(
     application: Application
@@ -38,12 +40,17 @@ class DeviceMonitorViewModel(
     private val histories = mutableMapOf<String, ArrayDeque<Float>>()
     private val historiesFlow = MutableStateFlow<Map<String, List<Float>>>(emptyMap())
 
-    // interval 기억(트리/설정에서 받아오는 ms)
     private val intervalMsBySensor = mutableMapOf<String, Long>()
 
-    // “최근 N분”만 보여주기 위한 윈도우
     private val WINDOW_MINUTES = 20L
     private val WINDOW_MS get() = WINDOW_MINUTES * 60_000L
+
+    private val _unhealthyAlert = MutableStateFlow<String?>(null)
+    val unhealthyAlert: StateFlow<String?> = _unhealthyAlert
+
+    fun dismissUnhealthyAlert() {
+        _unhealthyAlert.value = null
+    }
 
     // ---------------------------------------------------------------------
     // 외부에서 interval 등록(트리 로드 시 호출)
@@ -55,7 +62,7 @@ class DeviceMonitorViewModel(
 
     private fun ensureCapacity(remote: String) {
         val interval = intervalMsBySensor[remote] ?: 60_000L
-        val cap = ((WINDOW_MS + interval - 1) / interval)   // ceil
+        val cap = ((WINDOW_MS + interval - 1) / interval)
             .coerceIn(10, 240)
         val q = histories.getOrPut(remote) { ArrayDeque() }
         while (q.size > cap) q.removeFirst()
@@ -68,11 +75,11 @@ class DeviceMonitorViewModel(
 
     fun commandActuatorMeasured(ae: String, remote: String, value: String) {
         viewModelScope.launch {
-            _actBusy.update { it + remote }          // 보내는 중 표시
+            _actBusy.update { it + remote }
             try {
                 val res = TinyIoTApi.sendActuatorWithLatency(ae, remote, value)
-                _actLatency.update { it + (remote to res) }   // 결과 저장
-                onActuatorChanged(ae, remote)                 // 최신값 폴링 재시작
+                _actLatency.update { it + (remote to res) }
+                onActuatorChanged(ae, remote)
             } finally {
                 _actBusy.update { it - remote }
             }
@@ -87,12 +94,10 @@ class DeviceMonitorViewModel(
         val q = histories.getOrPut(remote) { ArrayDeque() }
         q.addLast(value)
 
-        // 용량 유지
         val interval = intervalMsBySensor[remote] ?: 60_000L
         val cap = ((WINDOW_MS + interval - 1) / interval).coerceIn(10, 240)
         while (q.size > cap) q.removeFirst()
 
-        // 스트림 갱신
         historiesFlow.update { it.toMutableMap().apply { put(remote, q.toList()) } }
     }
 
@@ -118,7 +123,6 @@ class DeviceMonitorViewModel(
         return Triple(sum / list.size, max, min)
     }
 
-    // DB도 같이 적재(옵션). 화면은 메모리 버퍼를 바로 씀.
     fun addSample(ae: String, remote: String, value: Float) {
         viewModelScope.launch(Dispatchers.IO) {
             sampleDao.insert(
@@ -139,6 +143,12 @@ class DeviceMonitorViewModel(
     // 센서 & 액추에이터 실시간 값 (상세/목록에서 쓰는 현재값들)
     private val _sensorValues = MutableStateFlow<Map<String, Float>>(emptyMap())
     val sensorValues: StateFlow<Map<String, Float>> = _sensorValues
+
+    private val _sensorStringValues = MutableStateFlow<Map<String, String>>(emptyMap())
+    val sensorStringValues: StateFlow<Map<String, String>> = _sensorStringValues
+
+    private val _inferenceValues = MutableStateFlow<Map<String, Pair<String?, List<String>>>>(emptyMap())
+    val inferenceValues: StateFlow<Map<String, Pair<String?, List<String>>>> = _inferenceValues
 
     private val _actuatorValues = MutableStateFlow<Map<String, String>>(emptyMap())
     val actuatorValues: StateFlow<Map<String, String>> = _actuatorValues
@@ -164,28 +174,53 @@ class DeviceMonitorViewModel(
         if (ae != null && tr != null) start(ae, tr)
     }
 
-    // 트리의 intervalMs 사용(없으면 기본 60s)
     private fun intervalFor(remote: String, tree: ResourceTree?): Long =
         tree?.sensors?.firstOrNull { it.remote == remote }?.intervalMs ?: 60_000L
 
-    // 시작: 센서/액추에이터 루프를 트리 기준으로 모두 구동
     fun start(ae: String, tree: ResourceTree) {
         lastAe = ae
         lastTree = tree
         stop()
 
-        // 센서
-        tree.sensors.forEach { def ->
-            val remote = def.remote
-            registerSensorInterval(ae, remote, def.intervalMs)
-            jobsPerSensor[remote]?.cancel()
-            jobsPerSensor[remote] = launchSensorLoop(ae, remote, def.intervalMs)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val notificationUri = mqttCfg.aeId
+
+            tree.sensors.forEach { sensor ->
+                val path = "TinyIoT/$ae/Sensors/${sensor.remote}"
+                mqtt.publishCreateSubscription(path, notificationUri)
+                delay(50)
+            }
+
+            tree.actuators.forEach { act ->
+                val path = "TinyIoT/$ae/Actuators/${act.remote}"
+                mqtt.publishCreateSubscription(path, notificationUri)
+                delay(50)
+            }
+
+            listOf("species", "health").forEach { inf ->
+                val path = "TinyIoT/$ae/inference/$inf"
+                mqtt.publishCreateSubscription(path, notificationUri)
+                delay(50)
+            }
+
+            Log.d("MQTT_VM", "Subscription requests sent for AE: $ae")
         }
-        // 액추에이터
-        tree.actuators.forEach { def ->
-            val remote = def.remote
-            jobsPerAct[remote]?.cancel()
-            jobsPerAct[remote] = launchActuatorLoop(ae, remote)
+    }
+
+    private fun processInferenceData(remote: String, dataPair: Pair<String?, List<String>>?) {
+        if (dataPair == null) return
+
+        _inferenceValues.update { it + (remote to dataPair) }
+
+        if (remote == "health") {
+            val healthList = dataPair.second
+            val unhealthyPlant = healthList.find { it.startsWith("unhealthy_") }
+
+            if (unhealthyPlant != null) {
+                val speciesName = unhealthyPlant.removePrefix("unhealthy_")
+                _unhealthyAlert.value = speciesName
+            }
         }
     }
 
@@ -194,10 +229,9 @@ class DeviceMonitorViewModel(
             while (isActive) {
                 val cntPath = "TinyIoT/$ae/Sensors/$remote"
 
-                // 1) CNT의 stateTag 확인
                 val st = TinyIoTApi.fetchStateTag(cntPath)
                 val prev = stCache[remote]
-                if (st == null || st != prev) {   // ← st==null이어도 1회는 읽기
+                if (st == null || st != prev) {
                     st?.let { stCache[remote] = it }
                     TinyIoTApi.fetchLatestCinFloat(cntPath)?.let { v ->
                         _sensorValues.update { it + (remote to v) }
@@ -213,7 +247,6 @@ class DeviceMonitorViewModel(
         viewModelScope.launch {
             val path = "TinyIoT/$ae/Actuators/$remote"
 
-            // 🔹 루프 돌기 전에 한 번 강제 읽기
             TinyIoTApi.fetchLatestCin(path)?.let { s ->
                 Log.d("ACT_GET", "kick $path -> $s")
                 _actuatorValues.update { it + (remote to s) }
@@ -236,9 +269,7 @@ class DeviceMonitorViewModel(
         }
     }
 
-    /** 상세 화면: 센서 하나 강제 갱신 */
     fun refreshOne(ae: String, remote: String) {
-        // 최신 값 조회 → UI 상태만 갱신 (히스토리에는 추가하지 않음)
         viewModelScope.launch {
             val path = "TinyIoT/$ae/Sensors/$remote"
             TinyIoTApi.fetchLatestCinFloat(path)?.let { v ->
@@ -247,33 +278,27 @@ class DeviceMonitorViewModel(
         }
     }
 
-    // 인터벌을 저장해두고 있다면 꺼내쓰는 헬퍼(없으면 60초 가정)
     fun intervalMsFor(remote: String): Long =
         intervalMsBySensor[remote] ?: 60_000L
 
-    // 진입 시 N개 과거 데이터 백필 (예: 6개 => 5,4,3,2,1,0분 전)
     suspend fun backfillHistory(ae: String, remote: String, points: Int) {
         Log.d("HIST_VM", "backfill start ae=$ae remote=$remote points=$points")
 
         val path = "TinyIoT/$ae/Sensors/$remote"
 
-        // 1. 과거 데이터 가져오기
         val list: List<Float> = TinyIoTApi.fetchHistoryFloats(path, points) ?: emptyList()
         Log.d("HIST_VM", "net result size=${list.size}, values=$list")
 
-        // 2. 최신값 따로 가져오기
         val latest = TinyIoTApi.fetchLatestCinFloat(path)
         Log.d("HIST_VM", "latest value = $latest")
 
-        // 3. 과거 + 최신값 합치기 (중복 제거)
         val combined = buildList<Float> {
-            addAll(list.asReversed())  // 오래된 → 최신 순으로
+            addAll(list.asReversed())
             if (latest != null && (isEmpty() || latest != last())) {
                 add(latest)
             }
         }
 
-        // 4. 메모리 히스토리에 반영
         val q = ArrayDeque<Float>()
         combined.forEach { q.addLast(it) }
         histories[remote] = q
@@ -292,19 +317,126 @@ class DeviceMonitorViewModel(
     fun refreshSensor(ae: String, sensor: String) = refreshOne(ae, sensor)
 
     /** 여러 개 강제 갱신(초기 진입/전체 새로고침 버튼) */
-    fun forceRefreshOnce(ae: String, sensors: List<String>, acts: List<String>) {
+    fun forceRefreshOnce(ae: String, sensors: List<String>, acts: List<String>, infs: List<String>) {
         viewModelScope.launch {
             sensors.forEach { r ->
-                val v = TinyIoTApi.fetchLatestCinFloat("TinyIoT/$ae/Sensors/$r")
-                if (v != null) {
-                    _sensorValues.update { it + (r to v) }
-                    onSensorSample(r, v)
+                val path = "TinyIoT/$ae/Sensors/$r"
+                val conString = TinyIoTApi.fetchLatestCin(path)
+
+                if (conString != null) {
+                    val f = conString.toFloatOrNull()
+                    if (f != null) {
+                        _sensorValues.update { it + (r to f) }
+                        onSensorSample(r, f)
+                    } else {
+                        _sensorStringValues.update { it + (r to conString) }
+                    }
                 }
             }
             acts.forEach { r ->
-                val s = TinyIoTApi.fetchLatestCin("TinyIoT/$ae/Actuators/$r")
+                val path = "TinyIoT/$ae/Actuators/$r"
+                val s = TinyIoTApi.fetchLatestCin(path)
                 if (s != null) _actuatorValues.update { it + (r to s) }
             }
+            infs.forEach { r ->
+                val path = "TinyIoT/$ae/inference/$r"
+                val dataPair = TinyIoTApi.fetchLatestCinLabelData(path)
+                processInferenceData(r, dataPair)
+            }
         }
+    }
+
+    private val mqttCfg = MqttConfig(
+        host = "203.250.148.89",
+        port = 1883,
+        aeId = "CAdmin",
+        cseId = "tinyiot"
+    )
+    private val mqtt = OneM2MMqtt(mqttCfg)
+
+    private val pendingAct = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Long>>()
+
+    fun commandActuatorViaMqtt(ae: String, remote: String, value: String) {
+        _actBusy.update { it + remote }
+        val toPath = "TinyIoT/$ae/Actuators/$remote"
+
+        val rqi = "req-${java.util.UUID.randomUUID()}"
+        val start = System.currentTimeMillis()
+
+        pendingAct[rqi] = remote to start
+
+        mqtt.publishCreateCin(toPath, value, rqi)
+    }
+
+    init {
+        mqtt.setOnNotify { container, con, lblList ->
+            if (container == null) return@setOnNotify
+
+            if (lblList != null && lblList.isNotEmpty()) {
+                processInferenceData(container, (null to lblList))
+                return@setOnNotify
+            }
+
+            if (con == null) return@setOnNotify
+
+            val f = con.toFloatOrNull()
+            if (f != null) {
+                _sensorValues.update { it + (container to f) }
+                onSensorSample(container, f)
+            } else {
+                _sensorStringValues.update { it + (container to con) }
+
+                _actuatorValues.update { it + (container to con) }
+            }
+        }
+        mqtt.setOnResponse { rqi, rsc, _ ->
+            val pair = pendingAct.remove(rqi)
+            if (pair != null) {
+                val (remote, start) = pair
+                val rtt = System.currentTimeMillis() - start
+                val res = ActuationLatency(
+                    finalValue = _actuatorValues.value[remote] ?: "",
+                    httpMs = rtt,
+                    observedMs = 0L,
+                    totalMs = rtt,
+                    ok = rsc in 2000..2999
+                )
+                _actLatency.update { it + (remote to res) }
+                _actBusy.update { it - remote }
+                lastAe?.let { aeNow -> refreshActuatorOnce(aeNow, remote) }
+                Log.d("MQTT_ACT", "remote=$remote rsc=$rsc rtt=${rtt}ms")
+            }
+            if (rqi.startsWith("sub-")) {
+                if (rsc == 2001) {
+                    Log.d("MQTT_SUB", "Subscription created OK (rqi=$rqi)")
+                } else if (rsc == 4105) {
+                    Log.d("MQTT_SUB", "Subscription already exists (rqi=$rqi)")
+                } else {
+                    Log.w("MQTT_SUB", "Subscription creation failed (rsc=$rsc, rqi=$rqi)")
+                }
+            }
+        }
+        mqtt.connect(onConnected = {
+            Log.d("MQTT_VM", "MQTT Connected. Ensuring subscriptions...")
+
+            viewModelScope.launch(Dispatchers.IO) {
+                val tree = lastTree ?: return@launch
+                val ae = lastAe ?: return@launch
+
+                val notificationUri = mqttCfg.aeId
+
+                tree.sensors.forEach { sensor ->
+                    val path = "/${mqttCfg.cseId}/TinyIoT/$ae/Sensors/${sensor.remote}"
+                    mqtt.publishCreateSubscription(path, notificationUri)
+                    delay(50)
+                }
+
+                tree.actuators.forEach { act ->
+                    val path = "/${mqttCfg.cseId}/TinyIoT/$ae/Actuators/${act.remote}"
+                    mqtt.publishCreateSubscription(path, notificationUri)
+                    delay(50)
+                }
+            }
+        })
     }
 }

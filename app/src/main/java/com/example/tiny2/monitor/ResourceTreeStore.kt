@@ -24,10 +24,9 @@ private fun canonicalOf(remote: String): String = when {
 
 private val Context.treeDataStore by preferencesDataStore(name = "resource_tree")
 
-// ---- 모델 ----
 data class SensorDef(
-    val canonical: String,   // Temperature / Humid / Fan … (표시/로직용 분류명)
-    val remote: String,      // 실제 CNT 이름 (Humid1, Fan1, Door, Water …)  ← 고유키!
+    val canonical: String,
+    val remote: String,
     val intervalMs: Long
 )
 
@@ -38,15 +37,14 @@ data class ActDef(
 
 data class ResourceTree(
     val sensors: List<SensorDef>,
-    val actuators: List<ActDef>
+    val actuators: List<ActDef>,
+    val inference: List<ActDef> = emptyList()
 )
 
-// ---- Store ----
 class ResourceTreeStore(private val context: Context) {
 
     private fun key(ae: String) = stringPreferencesKey("tree:$ae")
 
-    // 필요한 경우 로드
     suspend fun load(ae: String): ResourceTree? {
         val raw = context.treeDataStore.data
             .map { it[key(ae)] }
@@ -55,7 +53,6 @@ class ResourceTreeStore(private val context: Context) {
         return parse(raw)
     }
 
-    // 화면에서 부르는 시그니처 ①
     suspend fun addSensors(
         ae: String,
         sensors: List<String>,
@@ -81,7 +78,6 @@ class ResourceTreeStore(private val context: Context) {
         save(ae, newTree)
     }
 
-    // 화면에서 부르는 시그니처 ②
     suspend fun addActuators(
         ae: String,
         acts: List<String>
@@ -104,7 +100,6 @@ class ResourceTreeStore(private val context: Context) {
         save(ae, newTree)
     }
 
-    // 저장
     suspend fun save(ae: String, tree: ResourceTree) {
         context.treeDataStore.edit { prefs ->
             prefs[key(ae)] = serialize(tree)
@@ -112,7 +107,6 @@ class ResourceTreeStore(private val context: Context) {
     }
 }
 
-/* ---------- JSON 직렬화/역직렬화 ---------- */
 
 private fun serialize(tree: ResourceTree): String {
     val root = JSONObject()

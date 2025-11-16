@@ -4,12 +4,11 @@ import okhttp3.*
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.suspendCancellableCoroutine
-import com.example.tiny.TinyFarmData
+import com.example.tiny2.TinyFarmData
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.coroutines.resume
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.Dispatchers
@@ -52,11 +51,10 @@ private fun defaultActuatorInitial(name: String): String = when (name.lowercase(
     "fan1"     -> "OFF"
     "water"    -> "OFF"
     "door"     -> "Closed"
-    "led"      -> "0"         // 밝기 값 (숫자)
+    "led"      -> "0"
     else       -> "OFF"
 }
 
-/** 세부 단계별 시간 로깅 (DNS/Connect/TLS/TTFB/Total) */
 class TimingEventListener : EventListener() {
     private val t = mutableMapOf<String, Long>()
     private fun mark(k: String) { t[k] = System.nanoTime() }
@@ -96,7 +94,6 @@ class TimingEventListener : EventListener() {
     }
 }
 
-/** 총 소요시간(벽시계 기준) 로깅 */
 class WallClockInterceptor : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val start = System.nanoTime()
@@ -109,18 +106,15 @@ class WallClockInterceptor : Interceptor {
         return resp
     }
 }
-// ---------------------------------------------------------------------------
 
 
 object TinyIoTApi {
     private val client = OkHttpClient.Builder()
-        .addInterceptor(WallClockInterceptor())            // 전체 소요시간
-        .eventListenerFactory { TimingEventListener() }    // 단계별 시간
+        .addInterceptor(WallClockInterceptor())
+        .eventListenerFactory { TimingEventListener() }
         .build()
-    private const val BASE = "http://203.250.148.89:3000"
+    private const val BASE = "YOUR_CSE_SERVER_URL_HERE"
     private const val AE_LIST_QUERY = "?fu=1&ty=2"
-    private const val GGW_LAT = 37.55097
-    private const val GGW_LNG = 127.07378
 
     private fun canonOf(remote: String): String = when {
         remote.equals("Temperature", true) -> "Temperature"
@@ -134,12 +128,14 @@ object TinyIoTApi {
         else -> remote
     }
 
-    private fun commonHeaders() = Request.Builder()
-        .addHeader("X-M2M-Origin", "CAdmin")
-        .addHeader("Accept", "application/json")
-        .addHeader("X-M2M-RVI", "2a")
+    private fun urlOf(vararg seg: String): String {
+        val head = BASE.removeSuffix("/")
+        val tail = seg.joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8") }
+        return "$head/$tail"
+    }
 
-
+    private fun urlRaw(path: String): String =
+        BASE.trimEnd('/') + "/" + path.trimStart('/')
 
     suspend fun createCnt(ae: String, parent: String, rn: String): Boolean {
         val path = "TinyIoT/$ae/$parent"
@@ -175,73 +171,9 @@ object TinyIoTApi {
         }
     }
 
-    private fun initialSensorValue(t: String): String = when (t) {
-        "Temperature" -> "0"
-        "Humid"       -> "0"
-        "CO2"         -> "0"
-        "Soil"        -> "0"
-        else          -> "0"
-    }
-
-    private fun initialActuatorValue(t: String): String = when (t) {
-        "LED"   -> "0"     // 밝기 0
-        "Fan"   -> "OFF"
-        "Door"  -> "Closed"
-        "Water" -> "OFF"
-        else    -> ""
-    }
-
-//    suspend fun fetchAvailableAEs(): List<String> = withContext(Dispatchers.IO) {
-//        val url = "http://10.0.2.2:3000/TinyIoT?fu=1&ty=2"
-//        val request = Request.Builder()
-//            .url(url)
-//            .addHeader("X-M2M-Origin", "CAdmin")
-//            .addHeader("Accept", "application/json")
-//            .addHeader("X-M2M-RVI", "2a")
-//            .addHeader("Content-Type", "application/json;ty=2")
-//            .addHeader("X-M2M-RI", "1234")
-//            .build()
-//
-//        try {
-//            val response = client.newCall(request).execute()
-//            if (!response.isSuccessful) {
-//                Log.w("FETCH_AE", "❌ 응답 실패: ${response.code}")
-//                return@withContext emptyList()
-//            }
-//
-//            val jsonStr = response.body?.string() ?: return@withContext emptyList()
-//            Log.d("FETCH_AE", "✅ 응답 본문: $jsonStr")
-//
-//            val json = JSONObject(jsonStr)
-//            val raw = json.opt("m2m:uril")
-//            val urilArray: JSONArray = when (raw) {
-//                is JSONArray -> raw
-//                is String -> JSONArray().put(raw)
-//                else -> {
-//                    Log.w("FETCH_AE", "❌ 'm2m:uril' 키 없음 또는 타입 오류: ${raw?.javaClass?.name}")
-//                    return@withContext emptyList()
-//                }
-//            }
-//
-//            val aeNames = mutableListOf<String>()
-//            for (i in 0 until urilArray.length()) {
-//                val path = urilArray.getString(i)
-//                if (path.startsWith("TinyIoT/") && path.count { it == '/' } == 1) {
-//                    aeNames.add(path.substringAfter("/"))
-//                }
-//            }
-//
-//            Log.d("FETCH_AE", "✅ parsed AE list: $aeNames")
-//            aeNames
-//        } catch (e: Exception) {
-//            Log.e("FETCH_AE", "❌ 예외 발생", e)
-//            emptyList()
-//        }
-//    }
-
     suspend fun fetchAvailableAEs(): List<String> = withContext(Dispatchers.IO) {
         val req = Request.Builder()
-            .url(BASE+"/TinyIoT" + AE_LIST_QUERY)   // ← 기존 "$BASE/$SOME_PATH" 를 이걸로 교체
+            .url(BASE+"/TinyIoT" + AE_LIST_QUERY)
             .addHeader("X-M2M-Origin", "CAdmin")
             .addHeader("X-M2M-RVI", "2a")
             .addHeader("Accept", "application/json")
@@ -255,7 +187,6 @@ object TinyIoTApi {
                 val parsed: UriListResponse =
                     json.decodeFromString<UriListResponse>(body)
 
-                // parsed.uril 그대로 사용
                 val names = parsed.uril
                     .mapNotNull { p ->
                         if (p.startsWith("TinyIoT/") && p.count { it == '/' } == 1)
@@ -270,130 +201,54 @@ object TinyIoTApi {
         }
     }
 
-//    suspend fun parseDevicesFromJson(json: JSONObject): List<TinyFarmData> {
-//        Log.d("PARSE_JSON", "🚨 parseDevicesFromJson() 실행됨")
-//        Log.d("PARSE_JSON", "받은 JSON 전체: ${json.toString(2)}")
-//
-//        val result = mutableListOf<TinyFarmData>()
-//        Log.d("TEST", "ayd$result")
-//        val aeList = json.optJSONArray("m2m:uril") ?: run {
-//            Log.d("PARSE_JSON", "aeList가 null임 — key 'm2m:uril' 없음")
-//            return result
-//        }
-//
-//        Log.d("PARSE_JSON", "aeList 길이: ${aeList.length()}")
-//
-//        for (i in 0 until aeList.length()) {
-//            val path = aeList.getString(i)
-//
-//            Log.d("PARSE_JSON", "받은 path: $path")
-//
-//            if (path.startsWith("TinyIoT/") && path.count { it == '/' } >= 1) {
-//                val aeName = path.substringAfterLast("/")
-//                val aeResp = fetchAe(aeName)
-//                if (aeResp == null) {
-//                    Log.w("PARSE_JSON", "❌ $aeName 응답이 null임")
-//                    continue
-//                }
-//
-//                Log.d("PARSE_JSON", "📦 $aeName AE 응답: ${aeResp.toString(2)}")
-//
-//                val ae = aeResp.optJSONObject("m2m:ae")
-//                if (ae == null) {
-//                    Log.w("PARSE_JSON", "⚠️ ae null – $aeName 에서 m2m:ae 못 찾음")
-//                    continue
-//                }
-//
-//                val name = ae.optString("rn", "No name")
-//                val rawLoc = ae.optJSONArray("lbl")?.findLocationLabel()
-//                val location = if (rawLoc.isNullOrBlank()) "No location information" else rawLoc
-//
-//                val sensors = fetchSensors(name)
-//                val actuators = fetchActuators(name)
-//
-//                val temp = sensors["Temperature"]
-//                Log.d("abcd","$temp")
-//                val humi = sensors["Humid"]
-//
-//                Log.d("PARSE", "📦 생성된 Device: $name, sensors=$sensors, actuators=$actuators")
-//
-//                result.add(
-//                    TinyFarmData(
-//                        name = name,
-//                        location = "Sejong Univ, Gwanggaeto Hall",
-//                        sensors = sensors,
-//                        actuators = actuators,
-//                        lat = GGW_LAT,
-//                        lng = GGW_LNG,
-//                        lastUpdated = nowTimeString(),
-//                        temperatureHistory = if (temp != null) listOf(temp) else listOf(),
-//                        humidityHistory = if (humi != null) listOf(humi) else listOf()
-//                    )
-//                )
-//
-//                Log.d("PARSE", "📦 생성된 Device: $name, sensors=$sensors, actuators=$actuators")
-//            }
-//        }
-//
-//        Log.d("PARSE_JSON", "🎯 최종 디바이스 개수: ${result.size}")
-//
-//        return result
-//    }
-
-    suspend fun fetchAe(aeName: String): JSONObject? {
-        val request = Request.Builder()
-            .url("$BASE/TinyIoT/$aeName")
-            .addHeader("X-M2M-Origin", "CAdmin")
-            .addHeader("Accept", "application/json")
-            .addHeader("X-M2M-RVI", "2a")
-            .get()
+    suspend fun fetchLatestCinLabelData(path: String): Pair<String?, List<String>>? = withContext(Dispatchers.IO) {
+        val url = "$BASE/$path/la"
+        val req = Request.Builder()
+            .url(url)
+            .header("X-M2M-Origin", "CAdmin")
+            .header("X-M2M-RVI", "2a")
+            .header("Accept", "application/json")
             .build()
 
-        return suspendCancellableCoroutine { cont ->
-            client.newCall(request).enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    e.printStackTrace()
-                    cont.resume(null)
+        try {
+            client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string() ?: return@withContext null
+
+                val cinJson = JSONObject(body).optJSONObject("m2m:cin") ?: return@withContext null
+
+                val lblArray = cinJson.optJSONArray("lbl") ?: return@withContext null
+
+                val innerJsonString = lblArray.optString(0, null) ?: return@withContext null
+
+                val innerJson = JSONObject(innerJsonString)
+
+                val timestamp = innerJson.optString("timestamp", null)
+
+                val dataObject = innerJson.optJSONObject("data") ?: return@withContext null
+
+                val results = mutableListOf<String>()
+                dataObject.keys().forEach { key ->
+                    results.add(dataObject.optString(key, ""))
                 }
 
-                override fun onResponse(call: Call, response: Response) {
-                    try {
-                        val body = response.body?.string()
-                        cont.resume(JSONObject(body))
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        cont.resume(null)
-                    }
-                }
-            })
+                return@withContext (timestamp to results)
+            }
+        } catch (e: Exception) {
+            Log.e("LBL_PARSE", "GET $url lbl parsing exception: ${e.message}")
+            null
         }
     }
 
-    private fun Request.Builder.commonHeaders(): Request.Builder =
-        this.header("X-M2M-Origin", "CAdmin")
-            .header("X-M2M-RVI", "2a")
-            .header("Accept", "application/json")
-            .header("Cache-Control", "no-cache")
-            .header("Pragma", "no-cache")
-
-    private fun cntNameFromTy4(base: String, uri: String): String? {
-        if (!uri.startsWith("$base/")) return null
-        val after = uri.removePrefix("$base/")   // "Fan1/4-2025..." or "LED/5-..."
-        return after.substringBefore('/')        // → "Fan1" / "LED"
-    }
-
     private suspend fun getCntNamesWithFallback(basePath: String): List<String> {
-        // 1) ty=4 우선: ".../<CNT>/<cin-id>"
         val uris4 = httpGetUris("$basePath?fu=1&ty=4")
         val from4 = uris4.mapNotNull { uri ->
-            // basePath 이후 첫 세그먼트만 취함 → LED/4-... -> LED, Fan1/4-... -> Fan1
             if (!uri.startsWith("$basePath/")) null
             else uri.removePrefix("$basePath/").substringBefore('/')
                 .takeIf { it.isNotBlank() }
         }.distinct()
         if (from4.isNotEmpty()) return from4
 
-        // 2) fallback ty=3: 서버가 CNT 대신 /<CNT>/<값>들을 줄 때가 있어 첫 세그먼트만 취함
         val uris3 = httpGetUris("$basePath?fu=1&ty=3")
         val from3 = uris3.mapNotNull { uri ->
             if (!uri.startsWith("$basePath/")) null
@@ -407,16 +262,21 @@ object TinyIoTApi {
     suspend fun fetchResourceTree(ae: String): ResourceTree {
         val sensorCnts = getCntNamesWithFallback("TinyIoT/$ae/Sensors")
         val actCnts    = getCntNamesWithFallback("TinyIoT/$ae/Actuators")
+
+        val infCnts    = getCntNamesWithFallback("TinyIoT/$ae/inference")
+
         val sensors = sensorCnts.map { SensorDef(canonical = canonOf(it), remote = it, intervalMs = 60_000L) }
         val acts    = actCnts.map    { ActDef   (canonical = canonOf(it), remote = it) }
+
+        val infs    = infCnts.map    { ActDef   (canonical = canonOf(it), remote = it) }
+
         Log.d(
             "TREE",
-            "fresh sensors=${sensors.map { it.remote }} acts=${acts.map { it.remote }}"
+            "fresh sensors=${sensors.map { it.remote }} acts=${acts.map { it.remote }} infs=${infs.map { it.remote }}"
         )
-        return ResourceTree(sensors = sensors, actuators = acts)
+        return ResourceTree(sensors = sensors, actuators = acts, inference = infs)
     }
 
-    // fu=1 응답의 m2m:uril(또는 m2m:uri) 배열을 파싱해서 List<String>으로 반환
     private suspend fun httpGetUris(path: String): List<String> = withContext(Dispatchers.IO) {
         val req = Request.Builder()
             .url("$BASE/$path")
@@ -438,7 +298,6 @@ object TinyIoTApi {
                     is String    -> listOf(raw)
                     else         -> emptyList()
                 }
-                // 디버깅 로그
                 Log.d("TREE_URIS", "path=$path -> size=${list.size} first=${list.firstOrNull()}")
                 list
             }
@@ -472,10 +331,36 @@ object TinyIoTApi {
             null
         }
     }
+    suspend fun fetchLatestCinFloat(path: String): Float? {
+        return try {
+            val request = Request.Builder()
+                .url("$BASE/$path/la")
+                .header("X-M2M-Origin", "CAdmin")
+                .header("X-M2M-RVI", "2a")
+                .header("Accept", "application/json")
+                .build()
 
-    // 숫자로 파싱
-    suspend fun fetchLatestCinFloat(path: String): Float? =
-        fetchLatestCin(path)?.toFloatOrNull()
+            withContext(Dispatchers.IO) {
+                val response = httpClient.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    return@withContext null
+                }
+
+                val bodyString = response.body?.string()
+                if (bodyString == null) {
+                    return@withContext null
+                }
+
+                val json = JSONObject(bodyString)
+
+                val conString = json.getJSONObject("m2m:cin").optString("con", null)
+
+                conString?.toFloatOrNull()
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     suspend fun fetchLatestCinText(cntPath: String): String? = suspendCancellableCoroutine { cont ->
         val req = Request.Builder()
@@ -497,7 +382,7 @@ object TinyIoTApi {
     }
 
     suspend fun fetchActuators(ae: String): Map<String, String> {
-        val tree = fetchResourceTree(ae)               // 기존에 이미 있는 함수
+        val tree = fetchResourceTree(ae)
         val result = mutableMapOf<String, String>()
         for (def in tree.actuators) {
             val v = fetchLatestCin("TinyIoT/$ae/Actuators/${def.remote}")
@@ -505,36 +390,6 @@ object TinyIoTApi {
         }
         return result
     }
-
-    private suspend fun fetchCinOnce(path: String): String? {
-        val url = "http://203.250.148.89:3000/$path"
-        val req = Request.Builder()
-            .url(url)
-            .addHeader("X-M2M-Origin", "CAdmin")
-            .addHeader("Accept", "application/json")
-            .addHeader("X-M2M-RVI", "2a")
-            .build()
-
-        return suspendCancellableCoroutine { cont ->
-            client.newCall(req).enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) = cont.resume(null, null)
-                override fun onResponse(call: Call, response: Response) {
-                    response.use {
-                        val body = response.body?.string().orEmpty()
-                        // m2m:cin 에서 con만 안전하게 추출
-                        val con = runCatching {
-                            JSONObject(body).optJSONObject("m2m:cin")?.optString("con", null)
-                        }.getOrNull()
-
-                        Log.d("API", "요청=$path, 응답=$body, con=$con")
-                        cont.resume(con, null)
-                    }
-                }
-            })
-        }
-    }
-
-    private val mediaJson  = "application/json".toMediaType()
     private val jsonTy3    = "application/json;ty=3".toMediaType()
     private val jsonTy4    = "application/json;ty=4".toMediaType()
 
@@ -554,7 +409,7 @@ object TinyIoTApi {
                     cont.resume(false, null)
                 }
                 override fun onResponse(call: Call, resp: Response) {
-                    val ok = resp.isSuccessful || resp.code == 409   // ✅ 여기서 409 허용
+                    val ok = resp.isSuccessful || resp.code == 409
                     Log.d("POST_RAW","$path -> ${resp.code} ok=$ok")
                     resp.close()
                     cont.resume(ok, null)
@@ -563,7 +418,7 @@ object TinyIoTApi {
         }
 
     suspend fun postCinText(cntPath: String, value: String): Boolean {
-        val url = "http://203.250.148.89:3000/$cntPath"
+        val url  = urlOf(cntPath)
         val body = """{"m2m:cin":{"con":"$value"}}""".toRequestBody("application/json;ty=4".toMediaType())
         val req = Request.Builder()
             .url(url)
@@ -588,53 +443,12 @@ object TinyIoTApi {
             "water"               -> "OFF"
             "door"                -> "Closed"
             "led"                 -> "0"
-            else                  -> ""       // 모르는 타입은 패스
+            else                  -> ""
         }
         if (value.isNotEmpty()) {
             postCinText("TinyIoT/$ae/Actuators/$remote", value)
         }
         return value
-    }
-
-    suspend fun fetchByTree(ae: String, tree: ResourceTree):
-            Pair<Map<String, Float>, Map<String, String>> {
-        val sensors = mutableMapOf<String, Float>()
-        for (def in tree.sensors) {
-            val cin = fetchLatestCin("TinyIoT/$ae/Sensors/${def.remote}")
-            cin?.toFloatOrNull()?.let { sensors[def.remote] = it }
-        }
-        val acts = mutableMapOf<String, String>()
-        for (def in tree.actuators) {
-            val cin = fetchLatestCin("TinyIoT/$ae/Actuators/${def.remote}")
-            if (cin != null) acts[def.remote] = cin
-        }
-        return sensors to acts
-    }
-
-    suspend fun parseSingleDeviceFromJson(json: JSONObject): TinyFarmData? {
-        val ae = json.optJSONObject("m2m:ae") ?: return null
-
-        val name = ae.optString("rn", "이름없음")
-        val rawLoc = ae.optJSONArray("lbl")?.findLocationLabel()
-        val location = if (rawLoc.isNullOrBlank()) "위치 정보 없음" else rawLoc
-
-        val sensors = fetchSensors(name)
-        val actuators = fetchActuators(name)
-
-        val temp = sensors["Temperature"]
-        val humi = sensors["Humid"]
-
-        return TinyFarmData(
-            name = name,
-            location = location,
-            sensors = sensors,
-            actuators = actuators,
-            lat = GGW_LAT,
-            lng = GGW_LNG,
-            lastUpdated = nowTimeString(),
-            temperatureHistory = if (temp != null) listOf(temp) else listOf(),
-            humidityHistory = if (humi != null) listOf(humi) else listOf()
-        )
     }
 
     suspend fun fetchAddableCnts(ae: String): Pair<List<String>, List<String>> = withContext(Dispatchers.IO) {
@@ -668,7 +482,7 @@ object TinyIoTApi {
             uris.map { it.substringAfterLast('/') }.distinct()
 
         val sensorsBase = "TinyIoT/$ae/Sensors"
-        val actsBase    = "TinyIoT/$ae/Actuators"   // ← 복수형
+        val actsBase    = "TinyIoT/$ae/Actuators"
 
         val s4 = getUris("$BASE/$sensorsBase?fu=1&ty=4")
         val sensors = if (s4.isNotEmpty()) fromTy4(sensorsBase, s4)
@@ -684,7 +498,8 @@ object TinyIoTApi {
     suspend fun fetchTinyIoTDetail(aeName: String): TinyFarmData? =
         withContext(Dispatchers.IO) {
             try {
-                val url = "http://203.250.148.89:3000/TinyIoT/$aeName"
+                val url = urlOf("TinyIoT", aeName)
+
                 val request = Request.Builder()
                     .url(url)
                     .addHeader("X-M2M-Origin", "CAdmin")
@@ -705,7 +520,13 @@ object TinyIoTApi {
                         ?.trim()
                         ?: "위치 정보 없음"
 
-                    // ↓ 기존 로직으로 센서/액추에이터 값 가져오기
+                    val gpsString = fetchLatestCin("TinyIoT/$name/Sensors/GPS")
+
+                    val (parsedLat, parsedLng) = parseGpsString(gpsString)
+
+                    val lat = parsedLat ?: 37.55097
+                    val lng = parsedLng ?: 127.07378
+
                     val sensors = fetchSensors(name)
                     val actuators = fetchActuators(name)
 
@@ -714,8 +535,8 @@ object TinyIoTApi {
                         location = location,
                         sensors = sensors,
                         actuators = actuators,
-                        lat = 37.55097,   // 현재 고정값 사용 중
-                        lng = 127.07378,
+                        lat = lat,
+                        lng = lng,
                         lastUpdated = nowTimeString(),
                         temperatureHistory = sensors["Temperature"]?.let { listOf(it) } ?: emptyList(),
                         humidityHistory    = sensors["Humid"]?.let { listOf(it) } ?: emptyList()
@@ -727,6 +548,14 @@ object TinyIoTApi {
             }
         }
 
+    /** GPS 문자열("lat,lng")을 Double 쌍으로 변환 */
+    private fun parseGpsString(gps: String?): Pair<Double?, Double?> {
+        if (gps == null) return null to null
+        val parts = gps.split(',')
+        if (parts.size != 2) return null to null
+        return parts[0].trim().toDoubleOrNull() to parts[1].trim().toDoubleOrNull()
+    }
+
     suspend fun fetchSensors(aeName: String): Map<String, Float> {
         val remotes = getCntNamesWithFallback("TinyIoT/$aeName/Sensors")
         val raw = mutableMapOf<String, Float>()
@@ -737,7 +566,6 @@ object TinyIoTApi {
             raw[remote] = v
         }
 
-        // 정규화
         fun canonOf(r: String) = when {
             r.equals("Temperature", true) -> "Temperature"
             r.startsWith("Humid", true)   -> "Humidity"
@@ -750,7 +578,6 @@ object TinyIoTApi {
 
         val result = mutableMapOf<String, Float>()
         for ((k, vs) in boxed) {
-            // humid 계열은 0이 아닌 값을 우선 채택, 없으면 0 중 하나
             val picked = if (k == "Humidity") {
                 vs.firstOrNull { it != 0f } ?: vs.firstOrNull()
             } else {
@@ -761,10 +588,8 @@ object TinyIoTApi {
         return result
     }
 
-    // TinyIoTApi.kt
-    // 파일 상단
     private const val TAG_ACT = "ACT_MEASURE"
-    private fun String.norm() = trim().uppercase()   // 공백/대소문자 차이 제거
+    private fun String.norm() = trim().uppercase()
 
     suspend fun sendActuatorWithLatency(
         ae: String,
@@ -780,8 +605,7 @@ object TinyIoTApi {
 
         Log.d(TAG_ACT, "▶ POST start remote=$remote want=$want path=$path")
 
-        // 1) 명령 전송
-        val okPost = sendActuatorCommand(ae, remote, value) // 기존 함수 사용
+        val okPost = sendActuatorCommand(ae, remote, value)
         val httpMs = SystemClock.elapsedRealtime() - t0
         Log.d(TAG_ACT, "◀ POST done ok=$okPost httpMs=${httpMs}ms")
 
@@ -791,18 +615,16 @@ object TinyIoTApi {
             )
         }
 
-        // 2) st/값 변화 대기
         var lastSt = -1
         var lastLa: String? = null
         while (SystemClock.elapsedRealtime() - t0 < timeoutMs) {
-            // (선택) CNT stateTag 체크
             val st = fetchStateTag(path) ?: -1
             if (st != -1 && st == lastSt) {
                 delay(pollMs); continue
             }
             lastSt = st
 
-            val la = fetchLatestCin(path)   // 서버의 실제 최신 con
+            val la = fetchLatestCin(path)
             Log.d(TAG_ACT, "poll st=$st la=$la (want=$want)")
             if (la != null) lastLa = la
 
@@ -824,19 +646,8 @@ object TinyIoTApi {
         )
     }
 
-    fun JSONArray.findLocationLabel(): String? {
-        for (i in 0 until length()) {
-            val item = getString(i)
-            if (item.startsWith("location:")) {
-                val value = item.substringAfter("location:").trim()
-                return if (value.isBlank()) null else value
-            }
-        }
-        return null
-    }
-
     suspend fun fetchHistoryFloats(cntPath: String, limit: Int): List<Float>? {
-        val url = "http://203.250.148.89:3000/$cntPath?rcn=4&ty=4&lim=$limit"
+        val url = "${BASE.trimEnd('/')}/$cntPath?rcn=4&ty=4&lim=$limit"
         Log.d("HIST_NET", "REQ url=$url")
 
         val json = httpGetJson(url, headers = mapOf(
@@ -864,8 +675,7 @@ object TinyIoTApi {
     }
 
     suspend fun fetchStateTag(cntPath: String): Int? {
-        // cntPath 예: "TinyIoT/<AE>/Sensors/<remote>"
-        val url = "http://203.250.148.89:3000/$cntPath"
+        val url = urlRaw(cntPath)
         val req = Request.Builder()
             .url(url)
             .header("X-M2M-Origin", "CAdmin")
@@ -894,7 +704,7 @@ object TinyIoTApi {
         actuatorType: String,
         value: String
     ): Boolean = withContext(Dispatchers.IO) {
-        val url = "http://203.250.148.89:3000/TinyIoT/$ae/Actuators/$actuatorType"
+        val url = urlOf("TinyIoT", ae, "Actuators", actuatorType)
 
         val json = JSONObject().put("m2m:cin", JSONObject().put("con", value))
         val body = json.toString().toRequestBody("application/json;ty=4".toMediaTypeOrNull())

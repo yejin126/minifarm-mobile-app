@@ -11,7 +11,7 @@ object OneM2M {
         .build()
 
     private const val BASE =
-        "http://203.250.148.89:3000/TinyIoT/TinyFarm/Sensors"  // CNT 부모 경로
+        "YOUR_CSE_SERVER_URL_HERE/TinyIoT/TinyFarm/Sensors"
 
     private fun req(url: String): Request =
         Request.Builder()
@@ -21,7 +21,6 @@ object OneM2M {
             .header("Accept", "application/json")
             .build()
 
-    /** CNT의 stateTag(st) 조회 */
     suspend fun getStateTag(cnt: String): Int {
         client.newCall(req("$BASE/$cnt")).execute().use { r ->
             val body = r.body?.string().orEmpty()
@@ -29,7 +28,6 @@ object OneM2M {
         }
     }
 
-    /** 최신 CIN(/la)의 con 값 조회 */
     suspend fun getLatest(cnt: String): String {
         client.newCall(req("$BASE/$cnt/la")).execute().use { r ->
             val body = r.body?.string().orEmpty()

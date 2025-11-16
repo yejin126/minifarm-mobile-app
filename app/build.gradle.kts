@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.tiny"
+    namespace = "com.example.tiny2"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.tiny"
+        applicationId = "com.example.tiny2"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
@@ -101,5 +101,11 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 
+    // MQTT
+    implementation ("com.hivemq:hivemq-mqtt-client:1.3.0")
+    implementation ("org.json:json:20240303")
+
     implementation("com.hivemq:hivemq-mqtt-client:1.3.3")
+
+    implementation ("com.google.accompanist:accompanist-systemuicontroller:0.31.0-alpha")
 }
