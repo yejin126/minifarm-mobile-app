@@ -1,6 +1,6 @@
-## Android App
+## Mobile App
 
-Android dashboard for the TinyIoT smart-farm system. It shows real-time sensor data, AI-based plant health inference, GPS location, and a live Raspberry Pi camera stream in a single mobile interface.
+Mobile dashboard for the TinyIoT smart-farm system. It shows real-time sensor data, AI-based plant health inference, GPS location, and a live Raspberry Pi camera stream in a single mobile interface.
 
 ## How to Run
 
